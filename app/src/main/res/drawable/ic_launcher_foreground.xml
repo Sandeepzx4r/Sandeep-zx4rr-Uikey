@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Neon Purple Gaming Shield -->
+    <path
+        android:fillColor="#9B30FF"
+        android:pathData="M54,24 L78,34 L74,64 C72,74 64,81 54,85 C44,81 36,74 34,64 L30,34 Z" />
+    <!-- Inner Dark Shield -->
+    <path
+        android:fillColor="#160929"
+        android:pathData="M54,29 L73,37 L70,62 C68,70 62,76 54,79 C46,76 40,70 38,62 L35,37 Z" />
+    <!-- Gold Crown Accent -->
+    <path
+        android:fillColor="#FFD13B"
+        android:pathData="M43,44 L47,36 L54,42 L61,36 L65,44 Z" />
+    <!-- Stylized Shark Fin / Gamepad Silhouette -->
+    <path
+        android:fillColor="#D966FF"
+        android:pathData="M39,57 C39,51 44,48 54,48 C64,48 69,51 69,57 C69,63 65,68 61,67 L58,63 L50,63 L47,67 C43,68 39,63 39,57 Z" />
+    <!-- Controller Buttons -->
+    <path
+        android:fillColor="#FFD13B"
+        android:pathData="M46,54 h2 v2 h2 v2 h-2 v2 h-2 v-2 h-2 v-2 h2 z" />
+    <path
+        android:fillColor="#FFD13B"
+        android:pathData="M60,55 a2,2 0 1,0 0,4 a2,2 0 1,0 0,-4 z" />
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M64,58 a2,2 0 1,0 0,4 a2,2 0 1,0 0,-4 z" />
+</vector>

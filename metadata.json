@@ -1,0 +1,6 @@
+{
+  "name": "Black Shark Gaming",
+  "description": "Gaming rewards companion app with game session tracking, Spin Wheel, and UPI/Google Play reward redemptions backed by Firebase Firestore.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

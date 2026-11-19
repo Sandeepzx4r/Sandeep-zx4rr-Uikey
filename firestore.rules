@@ -1,0 +1,315 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidGameKey(key) {
+      return key is string && key in ['pubg', 'bgmi', 'free_fire'];
+    }
+
+    function isValidSpinReward(coins) {
+      return coins is int && coins in [10, 25, 50, 100, 150, 200, 250, 500];
+    }
+
+    function isValidRedeemTier(coins) {
+      return coins is int && coins in [500, 1000, 2000];
+    }
+
+    // Validation Blueprints
+    function isValidUserProfile(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+             data.playerCode is string && data.playerCode.size() >= 3 && data.playerCode.size() <= 24 &&
+             data.coinBalance is int && data.coinBalance >= 0 && data.coinBalance <= 10000000 &&
+             data.totalEarnedCoins is int && data.totalEarnedCoins >= 0 && data.totalEarnedCoins <= 10000000 &&
+             data.totalRedeemedCoins is int && data.totalRedeemedCoins >= 0 && data.totalRedeemedCoins <= 10000000 &&
+             data.totalSessionsCompleted is int && data.totalSessionsCompleted >= 0 && data.totalSessionsCompleted <= 100000 &&
+             data.totalSpins is int && data.totalSpins >= 0 && data.totalSpins <= 1000000 &&
+             (!('lastSpinAt' in data) || data.lastSpinAt == null || (data.lastSpinAt is timestamp && data.lastSpinAt <= request.time)) &&
+             (!('lastActionRefId' in data) || data.lastActionRefId == null || (data.lastActionRefId is string && isValidId(data.lastActionRefId))) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidConnectedGame(data, userId, gameId) {
+      return data.userId is string && data.userId == userId &&
+             isValidGameKey(data.gameKey) && data.gameKey == gameId &&
+             data.gameTitle is string && data.gameTitle.size() >= 2 && data.gameTitle.size() <= 50 &&
+             data.inGamePlayerId is string && data.inGamePlayerId.size() >= 3 && data.inGamePlayerId.size() <= 40 &&
+             data.inGameUsername is string && data.inGameUsername.size() >= 2 && data.inGameUsername.size() <= 40 &&
+             data.connected is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidGameSession(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             isValidGameKey(data.gameKey) &&
+             data.gameTitle is string && data.gameTitle.size() >= 2 && data.gameTitle.size() <= 50 &&
+             data.status is string && data.status in ['active', 'claimed', 'cancelled'] &&
+             data.targetDurationSeconds is int && data.targetDurationSeconds == 3600 &&
+             data.rewardCoins is int && data.rewardCoins == 1000 &&
+             data.startedAt is timestamp && data.startedAt <= request.time &&
+             (!('completedAt' in data) || data.completedAt == null || (data.completedAt is timestamp && data.completedAt <= request.time)) &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidSpinLog(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             isValidSpinReward(data.rewardCoins) &&
+             data.segmentLabel is string && data.segmentLabel.size() >= 1 && data.segmentLabel.size() <= 30 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidRedemption(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.method is string && data.method in ['upi', 'google_play'] &&
+             data.destination is string && data.destination.size() >= 4 && data.destination.size() <= 100 &&
+             isValidRedeemTier(data.coinsCost) &&
+             data.amountInr is int && data.amountInr == data.coinsCost &&
+             data.status is string && data.status == 'submitted' &&
+             data.referenceCode is string && data.referenceCode.size() >= 6 && data.referenceCode.size() <= 32 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    // Action predicates for UserProfile updates
+    function isProfileEditAction() {
+      return incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt']) &&
+             incoming().coinBalance == existing().coinBalance &&
+             incoming().totalEarnedCoins == existing().totalEarnedCoins &&
+             incoming().totalRedeemedCoins == existing().totalRedeemedCoins &&
+             incoming().totalSessionsCompleted == existing().totalSessionsCompleted &&
+             incoming().totalSpins == existing().totalSpins;
+    }
+
+    function isSessionClaimWalletAction(userId) {
+      return incoming().diff(existing()).affectedKeys().hasOnly([
+               'coinBalance', 'totalEarnedCoins', 'totalSessionsCompleted', 'lastActionRefId', 'updatedAt'
+             ]) &&
+             'lastActionRefId' in incoming() &&
+             incoming().lastActionRefId is string &&
+             isValidId(incoming().lastActionRefId) &&
+             exists(/databases/$(database)/documents/users/$(userId)/game_sessions/$(incoming().lastActionRefId)) &&
+             get(/databases/$(database)/documents/users/$(userId)/game_sessions/$(incoming().lastActionRefId)).data.status == 'active' &&
+             request.time >= get(/databases/$(database)/documents/users/$(userId)/game_sessions/$(incoming().lastActionRefId)).data.startedAt + duration.value(3600, 's') &&
+             getAfter(/databases/$(database)/documents/users/$(userId)/game_sessions/$(incoming().lastActionRefId)).data.status == 'claimed' &&
+             incoming().coinBalance == existing().coinBalance + 1000 &&
+             incoming().totalEarnedCoins == existing().totalEarnedCoins + 1000 &&
+             incoming().totalSessionsCompleted == existing().totalSessionsCompleted + 1;
+    }
+
+    function isSpinRewardWalletAction(userId) {
+      return incoming().diff(existing()).affectedKeys().hasOnly([
+               'coinBalance', 'totalEarnedCoins', 'totalSpins', 'lastSpinAt', 'lastActionRefId', 'updatedAt'
+             ]) &&
+             (!('lastSpinAt' in existing()) || existing().lastSpinAt == null || request.time >= existing().lastSpinAt + duration.value(60, 's')) &&
+             'lastSpinAt' in incoming() && incoming().lastSpinAt is timestamp && incoming().lastSpinAt <= request.time &&
+             'lastActionRefId' in incoming() &&
+             incoming().lastActionRefId is string &&
+             isValidId(incoming().lastActionRefId) &&
+             !exists(/databases/$(database)/documents/users/$(userId)/spin_logs/$(incoming().lastActionRefId)) &&
+             existsAfter(/databases/$(database)/documents/users/$(userId)/spin_logs/$(incoming().lastActionRefId)) &&
+             isValidSpinReward(getAfter(/databases/$(database)/documents/users/$(userId)/spin_logs/$(incoming().lastActionRefId)).data.rewardCoins) &&
+             incoming().coinBalance == existing().coinBalance + getAfter(/databases/$(database)/documents/users/$(userId)/spin_logs/$(incoming().lastActionRefId)).data.rewardCoins &&
+             incoming().totalEarnedCoins == existing().totalEarnedCoins + getAfter(/databases/$(database)/documents/users/$(userId)/spin_logs/$(incoming().lastActionRefId)).data.rewardCoins &&
+             incoming().totalSpins == existing().totalSpins + 1;
+    }
+
+    function isRedeemWalletAction(userId) {
+      return incoming().diff(existing()).affectedKeys().hasOnly([
+               'coinBalance', 'totalRedeemedCoins', 'lastActionRefId', 'updatedAt'
+             ]) &&
+             'lastActionRefId' in incoming() &&
+             incoming().lastActionRefId is string &&
+             isValidId(incoming().lastActionRefId) &&
+             !exists(/databases/$(database)/documents/users/$(userId)/redemptions/$(incoming().lastActionRefId)) &&
+             existsAfter(/databases/$(database)/documents/users/$(userId)/redemptions/$(incoming().lastActionRefId)) &&
+             isValidRedeemTier(getAfter(/databases/$(database)/documents/users/$(userId)/redemptions/$(incoming().lastActionRefId)).data.coinsCost) &&
+             incoming().coinBalance == existing().coinBalance - getAfter(/databases/$(database)/documents/users/$(userId)/redemptions/$(incoming().lastActionRefId)).data.coinsCost &&
+             incoming().coinBalance >= 0 &&
+             incoming().totalRedeemedCoins == existing().totalRedeemedCoins + getAfter(/databases/$(database)/documents/users/$(userId)/redemptions/$(incoming().lastActionRefId)).data.coinsCost;
+    }
+
+    // 1. User Profile & Wallet
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'displayName', 'playerCode', 'coinBalance',
+                         'totalEarnedCoins', 'totalRedeemedCoins', 'totalSessionsCompleted',
+                         'totalSpins', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'displayName', 'playerCode', 'coinBalance',
+                         'totalEarnedCoins', 'totalRedeemedCoins', 'totalSessionsCompleted',
+                         'totalSpins', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().coinBalance == 0 &&
+                       incoming().totalEarnedCoins == 0 &&
+                       incoming().totalRedeemedCoins == 0 &&
+                       incoming().totalSessionsCompleted == 0 &&
+                       incoming().totalSpins == 0 &&
+                       isValidUserProfile(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidUserProfile(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().playerCode == existing().playerCode &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         isProfileEditAction() ||
+                         isSessionClaimWalletAction(userId) ||
+                         isSpinRewardWalletAction(userId) ||
+                         isRedeemWalletAction(userId)
+                       );
+
+      allow delete: if false;
+
+      // 2. Connected Games (PUBG, BGMI, Free Fire)
+      match /connected_games/{gameId} {
+        allow get: if isOwner(userId) && isValidGameKey(gameId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidGameKey(gameId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'gameKey', 'gameTitle', 'inGamePlayerId',
+                           'inGameUsername', 'connected', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'gameKey', 'gameTitle', 'inGamePlayerId',
+                           'inGameUsername', 'connected', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().connected == true &&
+                         isValidConnectedGame(incoming(), userId, gameId);
+
+        allow update: if isOwner(userId) &&
+                         isValidGameKey(gameId) &&
+                         isValidConnectedGame(incoming(), userId, gameId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().gameKey == existing().gameKey &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'inGamePlayerId', 'inGameUsername', 'connected', 'updatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidGameKey(gameId);
+      }
+
+      // 3. Server-Validated 1-Hour Game Sessions
+      match /game_sessions/{sessionId} {
+        allow get: if isOwner(userId) && isValidId(sessionId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(sessionId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'gameKey', 'gameTitle', 'status',
+                           'targetDurationSeconds', 'rewardCoins', 'startedAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'gameKey', 'gameTitle', 'status',
+                           'targetDurationSeconds', 'rewardCoins', 'startedAt', 'updatedAt'
+                         ]) &&
+                         incoming().status == 'active' &&
+                         isValidGameSession(incoming(), userId) &&
+                         exists(/databases/$(database)/documents/users/$(userId)/connected_games/$(incoming().gameKey));
+
+        allow update: if isOwner(userId) &&
+                         isValidId(sessionId) &&
+                         isValidGameSession(incoming(), userId) &&
+                         existing().status == 'active' &&
+                         incoming().userId == existing().userId &&
+                         incoming().gameKey == existing().gameKey &&
+                         incoming().gameTitle == existing().gameTitle &&
+                         incoming().targetDurationSeconds == existing().targetDurationSeconds &&
+                         incoming().rewardCoins == existing().rewardCoins &&
+                         incoming().startedAt == existing().startedAt &&
+                         (
+                           // Action: Claim validated 1-hour session atomically with wallet credit
+                           (
+                             incoming().status == 'claimed' &&
+                             incoming().diff(existing()).affectedKeys().hasOnly(['status', 'completedAt', 'updatedAt']) &&
+                             'completedAt' in incoming() &&
+                             incoming().completedAt is timestamp &&
+                             incoming().completedAt <= request.time &&
+                             request.time >= existing().startedAt + duration.value(3600, 's') &&
+                             getAfter(/databases/$(database)/documents/users/$(userId)).data.lastActionRefId == sessionId
+                           ) ||
+                           // Action: Cancel active session (no coins credited)
+                           (
+                             incoming().status == 'cancelled' &&
+                             incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+                           )
+                         );
+
+        allow delete: if false;
+      }
+
+      // 4. Immutable Spin Wheel Logs
+      match /spin_logs/{spinId} {
+        allow get: if isOwner(userId) && isValidId(spinId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(spinId) &&
+                         incoming().keys().hasAll(['userId', 'rewardCoins', 'segmentLabel', 'createdAt']) &&
+                         incoming().keys().hasOnly(['userId', 'rewardCoins', 'segmentLabel', 'createdAt']) &&
+                         isValidSpinLog(incoming(), userId) &&
+                         getAfter(/databases/$(database)/documents/users/$(userId)).data.lastActionRefId == spinId;
+
+        allow update, delete: if false;
+      }
+
+      // 5. Immutable UPI & Google Play Redemption Requests
+      match /redemptions/{redemptionId} {
+        allow get: if isOwner(userId) && isValidId(redemptionId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(redemptionId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'method', 'destination', 'coinsCost',
+                           'amountInr', 'status', 'referenceCode', 'createdAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'method', 'destination', 'coinsCost',
+                           'amountInr', 'status', 'referenceCode', 'createdAt'
+                         ]) &&
+                         isValidRedemption(incoming(), userId) &&
+                         getAfter(/databases/$(database)/documents/users/$(userId)).data.lastActionRefId == redemptionId;
+
+        allow update, delete: if false;
+      }
+    }
+  }
+}

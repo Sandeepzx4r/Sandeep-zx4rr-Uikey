@@ -1,0 +1,118 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated gamer profile and server-validated coin wallet.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "displayName": { "type": "string", "description": "User display name." },
+        "playerCode": { "type": "string", "description": "Unique Black Shark player identifier." },
+        "coinBalance": { "type": "integer", "description": "Current available coin balance." },
+        "totalEarnedCoins": { "type": "integer", "description": "Lifetime earned coins." },
+        "totalRedeemedCoins": { "type": "integer", "description": "Lifetime redeemed coins." },
+        "totalSessionsCompleted": { "type": "integer", "description": "Number of validated 1-hour sessions completed." },
+        "totalSpins": { "type": "integer", "description": "Total spin wheel spins completed." },
+        "lastSpinAt": { "type": "string", "format": "date-time", "description": "Server timestamp of the most recent spin (FieldValue.serverTimestamp())." },
+        "lastActionRefId": { "type": "string", "description": "Document ID of the last atomic reward or redemption action." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Account creation server timestamp (FieldValue.serverTimestamp())." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update server timestamp (FieldValue.serverTimestamp())." }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "playerCode",
+        "coinBalance",
+        "totalEarnedCoins",
+        "totalRedeemedCoins",
+        "totalSessionsCompleted",
+        "totalSpins",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ConnectedGame": {
+      "title": "ConnectedGame",
+      "description": "A user-linked game account (PUBG, BGMI, or Free Fire).",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "gameKey": { "type": "string", "enum": ["pubg", "bgmi", "free_fire"], "description": "Canonical game identifier." },
+        "gameTitle": { "type": "string", "description": "Human-readable game title." },
+        "inGamePlayerId": { "type": "string", "description": "Player's in-game UID/ID." },
+        "inGameUsername": { "type": "string", "description": "Player's in-game handle." },
+        "connected": { "type": "boolean", "description": "Whether the game link is active." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp when connected (FieldValue.serverTimestamp())." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp when updated (FieldValue.serverTimestamp())." }
+      },
+      "required": ["userId", "gameKey", "gameTitle", "inGamePlayerId", "inGameUsername", "connected", "createdAt", "updatedAt"]
+    },
+    "GameSession": {
+      "title": "GameSession",
+      "description": "Server-timestamped 1-hour gaming session awarding 1,000 coins upon validated completion.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "gameKey": { "type": "string", "enum": ["pubg", "bgmi", "free_fire"], "description": "Game being played." },
+        "gameTitle": { "type": "string", "description": "Game display title." },
+        "status": { "type": "string", "enum": ["active", "claimed", "cancelled"], "description": "Session lifecycle status." },
+        "targetDurationSeconds": { "type": "integer", "description": "Required play duration in seconds (3600)." },
+        "rewardCoins": { "type": "integer", "description": "Coins rewarded upon completion (1000)." },
+        "startedAt": { "type": "string", "format": "date-time", "description": "Immutable server start timestamp (FieldValue.serverTimestamp())." },
+        "completedAt": { "type": "string", "format": "date-time", "description": "Server completion timestamp when claimed (FieldValue.serverTimestamp())." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update server timestamp (FieldValue.serverTimestamp())." }
+      },
+      "required": ["userId", "gameKey", "gameTitle", "status", "targetDurationSeconds", "rewardCoins", "startedAt", "updatedAt"]
+    },
+    "SpinLog": {
+      "title": "SpinLog",
+      "description": "Immutable log of a Spin Wheel reward credited atomically to the user's wallet.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "rewardCoins": { "type": "integer", "description": "Coins won from the spin wheel." },
+        "segmentLabel": { "type": "string", "description": "Wheel segment label." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of the spin (FieldValue.serverTimestamp())." }
+      },
+      "required": ["userId", "rewardCoins", "segmentLabel", "createdAt"]
+    },
+    "RedemptionRequest": {
+      "title": "RedemptionRequest",
+      "description": "Immutable UPI or Google Play Redeem Card withdrawal request.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "method": { "type": "string", "enum": ["upi", "google_play"], "description": "Withdrawal payout method." },
+        "destination": { "type": "string", "description": "UPI ID or recipient email for Google Play code." },
+        "coinsCost": { "type": "integer", "description": "Coins deducted (500, 1000, or 2000)." },
+        "amountInr": { "type": "integer", "description": "Equivalent INR value (1 coin = 1 INR)." },
+        "status": { "type": "string", "enum": ["submitted"], "description": "Initial request status." },
+        "referenceCode": { "type": "string", "description": "Unique redemption reference code." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of submission (FieldValue.serverTimestamp())." }
+      },
+      "required": ["userId", "method", "destination", "coinsCost", "amountInr", "status", "referenceCode", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profile and coin wallet scoped strictly to the authenticated owner."
+    },
+    "/users/{userId}/connected_games/{gameId}": {
+      "schema": { "$ref": "#/entities/ConnectedGame" },
+      "description": "Linked PUBG, BGMI, and Free Fire accounts per user."
+    },
+    "/users/{userId}/game_sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/GameSession" },
+      "description": "Real-time server-validated 1-hour game sessions per user."
+    },
+    "/users/{userId}/spin_logs/{spinId}": {
+      "schema": { "$ref": "#/entities/SpinLog" },
+      "description": "Immutable Spin Wheel history per user."
+    },
+    "/users/{userId}/redemptions/{redemptionId}": {
+      "schema": { "$ref": "#/entities/RedemptionRequest" },
+      "description": "Immutable UPI and Google Play redemption requests per user."
+    }
+  }
+}
